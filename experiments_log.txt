@@ -1,0 +1,25 @@
+experiments,log,result
+0,trained for 60 epochs batch size 1024 and annealed 6e-4. 30m param model perhaps we need to double down but most of the mass is in the output weights. context of 32, good generations but left to be evaluated
+1,same as 0 but this time we are keeping track of the clip evaluation proximity, out intuition was correct. The clip proximities to image and text keep increasing but the image proximity more slowly than the text. Furthermore I'm letting CLIP choose the best sentence. I observe some cut off input sentences so I'll increase the context size
+2, same as before but we evaluate using a batch size of 1 for CLIP during evaluation. This should mean that accuracy goes down because we are not using a utility function/oracle to choose the best generation,
+3, same as before but context size of 100, somehow there is a lot of repetition in the generations I hypothesize this is due to the utility function not correctly capturing the similarity between text and image but this would mean that this whole ordeal wouldn't work. However it kinda does so we need to find a way to 1. generate text that does not differ that much from the original text and 2. make sure the text that clip is choosing does not contain repeatable elements and is generally correct.
+4, trained for 80 epochs but context size of 32 and lower temperature (0.9) we also need to choose the model according to the best distance to the ground truth text, seems that the model still repeated itself and was erroneous most of the time I think that training for longer should do it because it's not yet converged
+5, trained for 150 epochs with context size of 42 and lr 1e-3 during evaluation we put the mean for proximity instead of max, model slowly converging and generations are way better also the similarities make more sense now.
+6, trained for 200 epochs with context size of 42 and lr 1e-3 with 30 epochs warmup heads 2 and layers 3, seems that sometimes it converges onto a suboptimal minimum. The training curves actually are quite different from each other. concerning.
+7, same as 6, the learning rate seems to have a big big impact on validation loss
+9, same as 5 but with lr warming up of 10 epochs, seems like we are now replicating the results of exp_5 which is nice (~0.14 image sim and ~0.49 text sim)
+10, same as 9 but with longer lr cool down, validation goes up too early we are not seeing the same results as in exp_9.
+11, try exp_10 but with faster cool down (60 epochs instead of 200) see if that changes anything wrt exp_5,
+12, same as 5 but with 4 heads and 3 layers, overfits quickly there are simply too many parameters   
+13, same as 5 but with 2 head and 1 layer1, it seems like deviating from 2 heads and 3 layers changes the performance too negatively. just use 2 and 3 and the same configuration as experiment 5. Furthermore best to use AdamW it's performing better than Adam.
+14, same as exp 5 but with a lower weight decay of 0.1 instead 0.2, It comes close but validation loss still not as low as using 0.2
+15, same as exp 5 but with higher weight decay 0.5, same results
+16, 256 hidden size, tried a bunch of settings but it never seems to surpass the 512 embeddings 69 from exp_21
+17, 512 hidden size redoing experiment 5, seems like it converges to the same state BUT using the new clip trained on clean data performs worse? how is this possible it is essentially the same. There is a weird sweet spot when training. This shouldn't be THIS difficult to train
+18, 512 hidden size experiment 5 but with a better chosen clip model that did not overtrain, seems like the similarity scores are better by 5-6% but the generations still seem quite off and repeating itself especially when comparing to exp_5
+19, same as 18 but weight decay is 0.2 and warmup is 15 and num training is 90, seems like we are improving by 10% in sim generations are better! generated_reports_clip_exp_21_9_3.json but lots of repetition still
+20, same as 19 but we checked the impact of the learning rate schedulers (warming and without) and also lr magnitude, seems like learning without a scheduler is next to impossibl. a warm up scheduler seems to be the best but learning is very sensitive of the number of warm up steps and cool down.just a regular exponential gamma scheduler works but here again finetuning is important. all in all there is not much we can gain without any more data. maybe some data augmentation with gpt would be nice to see.
+21, same as 19 but context of 32,
+22, bio-gpt pretrained frozen 3 layers 2 head decoder on top, scarily really good generations.
+23, same as 22 but we trained for 40 epochs, seems like it's nice but might need a few more epochs of training.
+24, same as 22 but trained for 60 epochs, a bit more overfit?

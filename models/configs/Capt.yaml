@@ -1,0 +1,7 @@
+Capt:
+    embed_dim: 1024
+    context_length: 42
+    vocab_size: 42384 #30522
+    transformer_width: 1024
+    transformer_heads: 2
+    transformer_layers: 3

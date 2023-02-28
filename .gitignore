@@ -1,0 +1,7 @@
+checkpoints
+__pycache__
+data/generated
+cross_validation_folds
+experiments_log
+lightning_logs
+tests
