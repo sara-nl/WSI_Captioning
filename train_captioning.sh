@@ -23,5 +23,5 @@ CUDA_VISIBLE_DEVICES=0 python train_captioning.py --lmdb_patches_path ${root_dat
   --context_length 42 \
   --gradient_clip_val 1.0 \
   --num_samples_val 32 \
-  --clip_checkpoint ./checkpoints/CLIP/exp_39_9/epoch_59_step_59.ckpt \
+  --clip_checkpoint ${root_data}/checkpoints/CLIP/exp_39_9/epoch_59_step_59.ckpt \
   --save_generations_path ./data/generated_reports_clip_exp_39_1.json
