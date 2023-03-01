@@ -57,7 +57,9 @@ class CaptioningWrapper(pl.LightningModule):
         Args:
         """
         super().__init__()
-        
+        # In this way the biogpt model gets loaded and saved when training
+        # maybe better to extract the latents beforehand and load ths in validation_end_epoch?
+        # Idem for pubmedbert
         self.biogpt = BioGPT()
         self.pubmedbert = PubMedBERT()
         self.clip = CLIPLightning(capt_config, args)
