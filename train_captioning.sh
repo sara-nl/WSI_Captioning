@@ -5,7 +5,7 @@ CUDA_VISIBLE_DEVICES=0 python train_captioning.py --lmdb_patches_path ${root_dat
   --texts_path ${root_data}/texts/texts \
   --crossvalidation_path ${root_data}/texts/cross_validation_folds/10_cross_validation.csv \
   --captioning_config_dir models/configs/Capt.yaml \
-  --tokens ${root_data}/texts/extracted_tokens/biogpt/token_dict.json \
+  --tokens_path ${root_data}/texts/extracted_tokens/biogpt/token_dict.json \
   --batch_size 1024 \
   --val_fold 9 \
   --devices 1 \

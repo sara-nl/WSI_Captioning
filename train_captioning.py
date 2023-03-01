@@ -37,6 +37,7 @@ if __name__ == '__main__':
     parser.add_argument('--lmdb_patches_path', type=str, required=True, help='directory of your training folder')
     parser.add_argument('--texts_path', type=str, required=True, help='directory of your texts')
     parser.add_argument('--crossvalidation_path', type=str, required=True, help='path to the .csv data containing the partitions')
+    parser.add_argument('--tokens_path', type=str, default="/projects/0/examode/caption_generation/colon//texts/extracted_tokens/biogpt/token_dict.json")
     parser.add_argument('--val_fold', type=int, default=9, required=True)
     parser.add_argument('--save_generations_path', type=str, required=False, help='path where to save the generations at the last epoch')
 
@@ -47,7 +48,7 @@ if __name__ == '__main__':
     parser.add_argument('--shuffle', type=bool, default=True, help='whether to use shuffling during sampling')
     parser.add_argument('--num_samples_val', type=int, default=100)
     parser.add_argument('--clip_checkpoint', type=str, default="./checkpoints/CLIP/exp_21_9_3/epoch_47_step_47.ckpt")
-    parser.add_argument('--tokens_path', type=str, default="/projects/0/examode/caption_generation/colon//texts/extracted_tokens/biogpt/token_dict.json")
+    
 
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
