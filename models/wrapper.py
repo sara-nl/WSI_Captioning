@@ -52,12 +52,9 @@ class CaptioningWrapper(pl.LightningModule):
                  capt_config: dict,
                  args: ArgumentParser
                  ):
-        """A lightning wrapper for a CLIP model as specified in the paper.
+        """A lightning wrapper for a WSI Captiong model as specified in the google docs.
 
         Args:
-            clip_config (dict): A dictionary containing the CLIP instantiation parameters.
-            transMIL_config (dict): A dictionary containing the TransMIL instantiation parameters.
-            hparals (ArgumentParser): an ArgumentParser containing global hyper parameters.
         """
         super().__init__()
         

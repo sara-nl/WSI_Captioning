@@ -112,10 +112,11 @@ class TextDecoder(nn.Module):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)
             the text tokens
-        xa : torch.Tensor, shape = (batch_size, n_mels, n_audio_ctx)
+        xa : torch.Tensor, shape = (batch_size, n_state)
             the encoded audio features to be attended on
         """
         x = x#.to(xa.dtype)
+
         # reshape such that our visual embeddings matches the sequence length
         # note that every text token now obtains (the same) information from the visual embeddings
         xa = xa.repeat(x.shape[1],1,1).permute(1,0,2)
