@@ -1,6 +1,7 @@
 import time
 import numpy as np
 import json
+from tqdm import tqdm
 
 import torch
 from torch import Tensor
@@ -57,26 +58,13 @@ class CaptioningWrapper(pl.LightningModule):
         Args:
         """
         super().__init__()
-        # In this way the biogpt model gets loaded and saved when training
-        # maybe better to extract the latents beforehand and load ths in validation_end_epoch?
-        # Idem for pubmedbert
-        self.biogpt = BioGPT()
-        self.pubmedbert = PubMedBERT()
+        
         self.clip = CLIPLightning(capt_config, args)
         self.captioner = WSICaptioner(**capt_config)
 
         # make sure we don't train the pre-trained models
-        self.biogpt.freeze()
-        self.pubmedbert.freeze()
         self.clip.freeze()
-
-        self.biogpt.eval()
-        self.pubmedbert.eval()
         self.clip.eval()
-
-        # tokenizers
-        self.biogpt_tokenizer = BioGptTokenizer.from_pretrained("microsoft/biogpt")
-        self.pubmed_tokenizer = AutoTokenizer.from_pretrained("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")
  
         self.hyper_params = args
         
@@ -85,12 +73,12 @@ class CaptioningWrapper(pl.LightningModule):
         # LM loss
         self.criterion = nn.CrossEntropyLoss()
 
-    def forward(self, tokens: Tensor, visual_embeddings: Tensor):
+    def forward(self, text_hiddens: Tensor, visual_embeddings: Tensor):
 
-        visual_clip_embeddings = self.clip.model.visual(visual_embeddings)
-        hiddens = self._get_sentence_embeddings(self.biogpt, tokens, output_all_hiddens=True)
+        visual_embeddings = self.clip.model.visual(visual_embeddings)
+        #hiddens = self._get_sentence_embeddings(self.biogpt, tokens, output_all_hiddens=True)
 
-        return self.captioner(hiddens, visual_clip_embeddings)
+        return self.captioner(text_hiddens, visual_embeddings)
 
     def _get_sentence_embeddings(self, model, input_tokens: Tensor, output_all_hiddens: bool = False) -> Tensor:
         """
@@ -113,11 +101,11 @@ class CaptioningWrapper(pl.LightningModule):
         return sentence_embedding    
 
     def _step(self, batch: tuple, batch_idx: int) -> dict:
-        _, visual_embeddings, tokenized_sequence, next_sequence = batch
-           
-        logits = self(tokenized_sequence, visual_embeddings)
-        logits = logits.permute(0,2,1)
+        _, visual_embeddings, embedded_sequence, token_sequence = batch
+        logits = self(embedded_sequence, visual_embeddings)
 
+        logits = logits.permute(0,2,1)
+        next_sequence = token_sequence[:,1:]
         loss = self.criterion(logits, next_sequence)
 
         return {"loss": loss, "batch": batch}
@@ -133,11 +121,11 @@ class CaptioningWrapper(pl.LightningModule):
         self.log('valid_loss', outputs["loss"], on_step=True)
 
         #TODO: this generated every step, preferably do this at the end
-        key, visual_embeddings, tokenized_sequences, _ = batch 
+        key, visual_embeddings, _, token_sequence = batch 
 
         return {"key": key, "loss": outputs["loss"], 
                 "visual_embeddings": visual_embeddings, 
-                "tokenized_sequences": tokenized_sequences}   
+                "tokenized_sequences": token_sequence}   
    
     def _ranked_cosine_similarity(self, tensor_1: Tensor, tensor_2: Tensor) -> Tuple[Tensor]:
         """
@@ -153,6 +141,7 @@ class CaptioningWrapper(pl.LightningModule):
 
         return best_similarity, indices, text_std
     
+    '''
     def validation_epoch_end(self, val_step_outputs: dict):
         """
         Bulky function to generate for each WSI<->Report in the validation set
@@ -161,12 +150,23 @@ class CaptioningWrapper(pl.LightningModule):
 
         Slow function because of autoregression.
         """
+        biogpt = BioGPT().to("cuda")
+        pubmedbert = PubMedBERT().to("cuda")
+        biogpt.freeze()
+        pubmedbert.freeze()
+        biogpt.eval()
+        pubmedbert.eval()
+
+        # tokenizers
+        biogpt_tokenizer = BioGptTokenizer.from_pretrained("microsoft/biogpt")
+        pubmed_tokenizer = AutoTokenizer.from_pretrained("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")
 
         start_eval = time.time()
         visual_embeddings = torch.cat([batch["visual_embeddings"] for batch in val_step_outputs], dim=0)
         clip_visual_embeddings = self.clip.model.visual(visual_embeddings)
 
-        tokenized_sequences = torch.cat([batch["tokenized_sequences"] for batch in val_step_outputs], dim=0)
+        # take the whole sequence minus the last token
+        tokenized_sequences = torch.cat([batch["tokenized_sequences"][:-1] for batch in val_step_outputs], dim=0)
         keys = [key for batch in val_step_outputs for key in batch["key"]]
         
         image_proximities = []
@@ -176,35 +176,37 @@ class CaptioningWrapper(pl.LightningModule):
         generated_texts = []
         real_texts = []
 
-        for i, key in enumerate(keys):
-
+        for i, key in tqdm(enumerate(keys)):
+            
+            if i==100:
+                break
             visual_embedding = visual_embeddings[i].unsqueeze(0)
             tokenized_sequence = tokenized_sequences[i].unsqueeze(0)
             # generate candidate diagnostic reports
             generated_texts_tokens, generated_tokens = self._generate("", 
-                                                visual_embedding, 
+                                                visual_embedding, biogpt,
                                                 num_samples=self.hyper_params.num_samples_val, 
                                                 do_sample=True, 
-                                                tokenizer=self.biogpt_tokenizer)
+                                                tokenizer=biogpt_tokenizer)
 
             # get the input embeddings for the original and the generated texts
-            real_text = [self.biogpt_tokenizer.decode(sent, skip_special_token=True) for sent in tokenized_sequence.detach().cpu().tolist()]
+            real_text = [biogpt_tokenizer.decode(sent, skip_special_token=True) for sent in tokenized_sequence.detach().cpu().tolist()]
             
-            tokenized_pubmed = self.pubmed_tokenizer.batch_encode_plus(real_text, 
+            tokenized_pubmed = pubmed_tokenizer.batch_encode_plus(real_text, 
                                                                        return_tensors='pt', 
                                                                        padding="max_length", 
                                                                        max_length=self.hyper_params.context_length+1, 
                                                                        truncation=True)["input_ids"].to(self.device)
 
-            generated_tokens = self.pubmed_tokenizer.batch_encode_plus(generated_texts_tokens, 
+            generated_tokens = pubmed_tokenizer.batch_encode_plus(generated_texts_tokens, 
                                                                        return_tensors='pt', 
                                                                        padding="max_length",
                                                                        max_length=self.hyper_params.context_length+1, 
                                                                        truncation=True)["input_ids"].to(self.device)
 
             
-            sentence_embedding = self._get_sentence_embeddings(self.pubmedbert, tokenized_pubmed)
-            generated_embedding = self._get_sentence_embeddings(self.pubmedbert, generated_tokens)
+            sentence_embedding = self._get_sentence_embeddings(pubmedbert, tokenized_pubmed)
+            generated_embedding = self._get_sentence_embeddings(pubmedbert, generated_tokens)
 
             # get the clip embeddings belonging to the texts
             clip_generated_embedding = F.normalize(self.clip.model.text_projection(generated_embedding), dim=1)
@@ -252,11 +254,13 @@ class CaptioningWrapper(pl.LightningModule):
 
             with open(self.hyper_params.save_generations_path, "w") as file:
                 json.dump(results_dict, file)
+    '''
     
     @torch.no_grad()
     def _autoregress(self, 
                      idx: Tensor, 
                      visual_embedding: Tensor, 
+                     encoder_model: BioGptForCausalLM,
                      max_new_tokens: int, 
                      temperature: float = 1.0, 
                      do_sample: bool = False, 
@@ -270,7 +274,9 @@ class CaptioningWrapper(pl.LightningModule):
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.hyper_params.context_length else idx[:, -self.hyper_params.context_length:]
-            logits = self(idx_cond, visual_embedding)
+
+            hiddens = self._get_sentence_embeddings(encoder_model, idx_cond, output_all_hiddens=True)
+            logits = self(hiddens, visual_embedding)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
@@ -304,6 +310,7 @@ class CaptioningWrapper(pl.LightningModule):
     
     def _generate(self, prompt: str, 
                   visual_embedding: Tensor, 
+                  encoder_model: BioGptForCausalLM,
                   num_samples: int = 1, 
                   do_sample: bool = False, 
                   tokenizer=None):
@@ -324,7 +331,7 @@ class CaptioningWrapper(pl.LightningModule):
         visual_embedding = visual_embedding.expand(num_samples, -1)
 
         # forward the model context_length-1 times times to get samples, in a batch
-        generated_tokens = self._autoregress(x, visual_embedding, 
+        generated_tokens = self._autoregress(x, visual_embedding, encoder_model,
                                     self.hyper_params.context_length-1, 
                                     do_sample=do_sample,
                                     top_k=None, 

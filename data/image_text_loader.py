@@ -13,9 +13,9 @@ from pytorch_lightning import LightningDataModule
 class TextImageDataset(Dataset):
     def __init__(self,
                  lmdb_patches_path: str,
-                 texts_path: str,
+                 text_embeddings_path: str,
+                 wsi_text: dict,
                  crossvalidation_data: list,
-                 wsi_tokens: dict,
                  shuffle: bool = True,
                  training_phase: bool = True,
                  validation_labels= None,
@@ -27,12 +27,12 @@ class TextImageDataset(Dataset):
         """
         super().__init__()
         self.lmdb_patches_path = lmdb_patches_path
-        self.texts_path = texts_path
+        self.text_embeddings_path = text_embeddings_path
         self.listed_data = crossvalidation_data
         self.shuffle = shuffle
         self.training_phase = training_phase
         self.validation_labels = validation_labels
-        self.tokens = wsi_tokens
+        self.wsi_text = wsi_text
 
         self.context_length = context_length
 
@@ -63,35 +63,36 @@ class TextImageDataset(Dataset):
         # For now, we are taking the mean, this too can be learned
         visual_embeddings = visual_embeddings.mean(dim=0)
         
-        text_path = os.path.join(self.texts_path, key.split(".pt")[0]+".txt")
-
+        text_path = os.path.join(self.text_embeddings_path, key.split(".pt")[0]+".txt_latent.pt")
         if Path(text_path).exists():
-            
-            tokenized_text = torch.tensor(self.tokens[key.split(".pt")[0]+".txt"][:self.context_length+1])
+            embedded_sequence = torch.load(text_path)
+            next_sequence = torch.tensor(self.wsi_text[key.split(".pt")[0]+".txt"])
 
         else:
             # it seems that some texts are given the wrong extension
             # some texts are named .svs while they should be .mrxs
             # TODO: Fix it properly 
-            text_path = os.path.join(self.texts_path, key.split(".")[0]+".mrxs.txt")
+            text_path = os.path.join(self.text_embeddings_path, key.split(".")[0]+".mrxs.txt_latent.pt")
             
             if Path(text_path).exists():
-                tokenized_text = torch.tensor(self.tokens[key.split(".")[0]+".mrxs.txt"][:self.context_length+1])
+                embedded_sequence = torch.load(text_path)[:self.context_length+1]
+                next_sequence = torch.tensor(self.wsi_text[key.split(".")[0]+".mrxs.txt"])
                 
             else:
                 return self.skip_sample(ind)
 
-        next_sequence = tokenized_text[1:]
-        tokenized_text = tokenized_text[:self.context_length]
+        token_sequence = next_sequence[:self.context_length+1]
+        embedded_sequence = embedded_sequence[:self.context_length]
 
-        return key, visual_embeddings, tokenized_text, next_sequence
+
+        return key, visual_embeddings, embedded_sequence, token_sequence
 
 class TextImageDataModule(LightningDataModule):
     def __init__(self,
                  lmdb_patches_path: str,
-                 texts_path: str,
+                 text_embeddings_path: str,
+                 text_tokens_path: str,
                  crossvalidation_path: str,
-                 tokens_path: str,
                  batch_size: int,
                  dataset: str,
                  num_workers: int = 0,
@@ -106,7 +107,7 @@ class TextImageDataModule(LightningDataModule):
         super().__init__()
         self.lmdb_patches_path = lmdb_patches_path
         self.listed_data_path = crossvalidation_path
-        self.texts_path = texts_path
+        self.text_embeddings_path = text_embeddings_path
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle = shuffle
@@ -114,8 +115,7 @@ class TextImageDataModule(LightningDataModule):
         self.dataset = dataset
         self.context_length = context_length
 
-        #self.tokenizer = BioGptTokenizer.from_pretrained("microsoft/biogpt")
-        with open(tokens_path, "r") as f:
+        with open(text_tokens_path, "r") as f:
             self.wsi_tokens = json.load(f)
 
         validation_folds = [self.val_fold]
@@ -153,16 +153,16 @@ class TextImageDataModule(LightningDataModule):
 
         print("num workers: ", self.num_workers)
         self.train_dataset = TextImageDataset(self.lmdb_patches_path,
-                                              self.texts_path,
-                                              self.listed_train_data,
+                                              self.text_embeddings_path,
                                               self.wsi_tokens,
+                                              self.listed_train_data,
                                               shuffle=self.shuffle,
                                               training_phase=True, context_length=self.context_length)
 
         self.val_dataset = TextImageDataset(self.lmdb_patches_path,
-                                              self.texts_path,
-                                              self.listed_val_data,
+                                              self.text_embeddings_path,
                                               self.wsi_tokens,
+                                              self.listed_val_data,
                                               shuffle=False,
                                               validation_labels=self.listed_val_labels,
                                               training_phase=False, context_length=self.context_length)
