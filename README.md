@@ -20,3 +20,5 @@ Change the arguments in train_captioning.sh and then run
 ```
 ./train_captioning.sh
 ```
+
+To evaluate the trained model

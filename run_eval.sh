@@ -9,6 +9,6 @@ CUDA_VISIBLE_DEVICES=0 python ./eval_lm.py --lmdb_patches_path ${root_data}/embe
   --val_fold 9 \
   --temperature 1.0 \
   --context_length 42 \
-  --clip_model_path ./checkpoints/CLIP/exp_39_9/epoch_59_step_59.ckpt \
-  --load_from_checkpoint ./checkpoints/CAPT/exp_28/epoch_149_step_750.ckpt
+  --clip_model_path ${root_data}/checkpoints/CLIP/exp_39_9/epoch_59_step_59.ckpt \
+  --load_from_checkpoint ${root_data}/checkpoints/CAPT/exp_28/epoch_149_step_750.ckpt
   
