@@ -16,6 +16,8 @@ pip install python-dateutil
 
 # Run 
 
+Make sure to put the data, i.e. ``/projects/0/examode/caption_generation/colon``, to scratch for fast reading.
+
 Change the arguments as seen fit in train_captioning.sh and then run
 ```
 sh train_captioning.sh
@@ -23,7 +25,7 @@ sh train_captioning.sh
 
 This trains the model but does not evaluate it during training apart from computing the validation loss.
 
-To evaluate the trained model you need to change the --load_from_checkpoint path with the newly trained model.
+To evaluate the trained model you need to change the ``--load_from_checkpoint`` path with the newly trained model.
 For example:
 
 ```
