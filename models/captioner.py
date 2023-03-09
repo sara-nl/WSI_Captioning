@@ -163,6 +163,7 @@ class WSICaptioner(nn.Module):
 
         self.context_length = context_length  
 
+        # Only necessary when not training the model with CLIP embeddings
         self.visual = nn.Sequential(nn.Linear(192, embed_dim//2), nn.ReLU(), nn.Dropout(0.1),
                                     nn.Linear(embed_dim//2, embed_dim), nn.ReLU(), nn.Dropout(0.1),
                                     nn.Linear(embed_dim, embed_dim))                                     

@@ -62,7 +62,7 @@ def main(args):
             # Get WSI embeddings
             key = listed_val_data[wsi_number]
             labels = listed_val_labels[wsi_number]
-            print(labels)
+            #print(labels)
             
             visual_embeddings = torch.load(str(Path(args.lmdb_patches_path) / f"{Path(key)}"))
             visual_embeddings = visual_embeddings.mean(dim=0).unsqueeze(0).to(device)
