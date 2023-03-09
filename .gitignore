@@ -1,7 +1,8 @@
 checkpoints
 __pycache__
-data/generated
+data/generated_reports
 cross_validation_folds
 experiments_log.txt
 lightning_logs
 tests
+venv

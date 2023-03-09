@@ -81,9 +81,9 @@ class TextImageDataset(Dataset):
             else:
                 return self.skip_sample(ind)
 
-        token_sequence = next_sequence[:self.context_length+1]
+        token_sequence = next_sequence[1:self.context_length+1]
         embedded_sequence = embedded_sequence[:self.context_length]
-
+        #embedded_sequence = next_sequence[:self.context_length]
 
         return key, visual_embeddings, embedded_sequence, token_sequence
 

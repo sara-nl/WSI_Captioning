@@ -99,6 +99,7 @@ class TextDecoder(nn.Module):
         super().__init__()
 
         self.token_embedding = nn.Embedding(n_vocab, n_state)
+        #self.positional_embedding = nn.Parameter(torch.empty(n_ctx, n_state))
 
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
             [ResidualAttentionBlock(n_state, n_head, cross_attention=True) for _ in range(n_layer)]
@@ -115,6 +116,8 @@ class TextDecoder(nn.Module):
         xa : torch.Tensor, shape = (batch_size, n_state)
             the encoded audio features to be attended on
         """
+        #offset = 0
+        #x = self.token_embedding(x) + self.positional_embedding[offset : offset + x.shape[-1]]
         x = x#.to(xa.dtype)
 
         # reshape such that our visual embeddings matches the sequence length
@@ -158,7 +161,11 @@ class WSICaptioner(nn.Module):
                  ):
         super().__init__()
 
-        self.context_length = context_length                                     
+        self.context_length = context_length  
+
+        self.visual = nn.Sequential(nn.Linear(192, embed_dim//2), nn.ReLU(), nn.Dropout(0.1),
+                                    nn.Linear(embed_dim//2, embed_dim), nn.ReLU(), nn.Dropout(0.1),
+                                    nn.Linear(embed_dim, embed_dim))                                     
 
         self.decoder = TextDecoder(vocab_size,
                     context_length,
@@ -185,6 +192,8 @@ class WSICaptioner(nn.Module):
             nn.init.normal_(self.CLIP.text_projection, std=self.transformer.width ** -0.5)
 
     def forward(self, lm_hiddens: Tensor, visual_clip_embeddings: Tensor) -> Dict[str, Tensor]:
+
+        visual_clip_embeddings = self.visual(visual_clip_embeddings)
         
         lm_logits = self.decoder(lm_hiddens, visual_clip_embeddings)
         
