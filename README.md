@@ -18,14 +18,14 @@ pip install python-dateutil
 
 Make sure to put the data, i.e. ``/projects/0/examode/caption_generation/colon``, to scratch for fast reading. Just one GPU should be good enough. Training to 80 epochs takes around 10 mins for me on a gcn node. Also note, the workers for the dataloading are kinda broken, so training should be faster than this.
 
-Change the arguments as seen fit in train_captioning.sh and then run
+Change the arguments as you see fit in train_captioning.sh and then run
 ```
 sh train_captioning.sh
 ```
 
 This trains the model but does not evaluate it during training apart from computing the validation loss.
 
-To evaluate the trained model you need to change the ``--load_from_checkpoint`` path with the newly trained model.
+To evaluate the trained model you need to change the ``--load_from_checkpoint`` path with the newly trained model in ``run_eval.sh``.
 For example:
 
 ```
