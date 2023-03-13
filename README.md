@@ -4,11 +4,17 @@ Repo for WSI caption generation
 # Requirements
 
 ```
-module load 2022
-module load Python/3.10.4-GCCcore-11.3.0
-module load PyTorch/1.12.0-foss-2022a-CUDA-11.7.0
+module load 2021
+module load Python/3.9.5-GCCcore-10.3.0
+module load PyTorch/1.11.0-foss-2021a-CUDA-11.3.1
+module unload typing-extensions/3.10.0.0-GCCcore-10.3.0
+
+python -m venv venv_1.11
+source venv_1.11/bin/activate
+
 pip install transformers
 pip install pytorch-lightning
+pip install pytz
 pip install python-dateutil 
 ```
 
