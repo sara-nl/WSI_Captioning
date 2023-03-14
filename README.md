@@ -22,9 +22,38 @@ pip install python-dateutil
 
 # Run 
 
-Make sure to put the data, i.e. ``/projects/0/examode/caption_generation/colon``, to scratch for fast reading. Just one GPU should be good enough. Training to 80 epochs takes around 10 mins for me on a gcn node. Also note, the workers for the dataloading are kinda broken, so training should be faster than this.
+Make sure to copy the data to your scratch for fast reading. Using just one GPU should be sufficient; remember, we don't have that much data.
 
-Change the arguments as you see fit in train_captioning.sh and then run
+ Training to 80 epochs takes less than 10 mins for me on a gcn node. Also note, the workers for the dataloading are kinda broken for now, so training should be faster than this, but that's a TODO.
+
+The default data for running the code is currently under
+
+```
+root_data=/projects/0/examode/caption_generation/colon
+```
+
+You need to copy the following folders and files to, for instance, your ``/scratch-local/user/caption_generation/``:
+
+1. **The visual embeddings**: ${root_data}/embeddings/hipt/hipt_wsi_embeddings/
+2. **The cross validation split file**: ${root_data}/texts/cross_validation_folds/10_cross_validation.csv
+3. **Microsoft's Bio-GPT embeddings**: ${root_data}/embeddings/texts/biogpt
+4. **The dictionary WSI_name -> tokenized_reports**: ${root_data}/texts/extracted_tokens/biogpt/token_dict.json
+5. **Pre-Trained CLIP model checkpoint**: ${root_data}/checkpoints/CLIP/exp_39_9/epoch_59_step_59.ckpt
+
+This will not take too long as it is little under 4G of data.
+
+*NOTE: I will make a bash script for this soon enough.
+
+Next, clone the repo into your scratch-local/user under ``caption_generation``.
+
+Change the arguments as you see fit in train_captioning.sh. But make sure that you modify ``root_data`` first. 
+
+```
+root_data=../colon
+```
+
+and then run
+
 ```
 sh train_captioning.sh
 ```
@@ -32,14 +61,20 @@ sh train_captioning.sh
 This trains the model but does not evaluate it during training apart from computing the validation loss.
 
 To evaluate the trained model you need to change the ``--load_from_checkpoint`` path with the newly trained model in ``run_eval.sh``.
+
 For example:
 
 ```
 --load_from_checkpoint ${root_data}/checkpoints/CAPT/exp_28/epoch_149_step_750.ckpt
 ```
 
+Also modify ``root_data`` in ``run_eval.sh``, as seen above.
+
+
 Thereafter, evaluate the trained model with:
 
 ```
 sh run_eval.sh
 ```
+
+The mean validation results will be printed on screen.
