@@ -6,19 +6,18 @@ import pandas as pd
 import os
 import torch
 import numpy as np
+import h5py
 
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 
 class TextImageDataset(Dataset):
     def __init__(self,
-                 lmdb_patches_path: str,
-                 text_embeddings_path: str,
-                 wsi_text: dict,
-                 crossvalidation_data: list,
+                 wsi_embeddings: dict,
+                 text_embeddings: dict,
+                 text_tokens: dict,
                  shuffle: bool = True,
                  training_phase: bool = True,
-                 validation_labels= None,
                  context_length: int = 32
                  ):
         """Create a text image dataset from a directory with congruent text and image names.
@@ -26,20 +25,20 @@ class TextImageDataset(Dataset):
         Args:
         """
         super().__init__()
-        self.lmdb_patches_path = lmdb_patches_path
-        self.text_embeddings_path = text_embeddings_path
-        self.listed_data = crossvalidation_data
+        self.wsi_embeddings = wsi_embeddings
+        self.text_embeddings = text_embeddings
+        self.text_tokens = text_tokens
         self.shuffle = shuffle
         self.training_phase = training_phase
-        self.validation_labels = validation_labels
-        self.wsi_text = wsi_text
+
+        self.wsi_names = list(self.wsi_embeddings)
 
         self.context_length = context_length
 
-        print("Number of Images: ", len(self.listed_data))        
+        print("Number of Images: ", len(self.wsi_embeddings))        
 
     def __len__(self):
-        return len(self.listed_data)
+        return len(self.wsi_embeddings)
 
     def random_sample(self):
         return self.__getitem__(randint(0, self.__len__() - 1))
@@ -56,48 +55,35 @@ class TextImageDataset(Dataset):
 
     def __getitem__(self, ind: int):
 
-        key = self.listed_data[ind]
+        key = self.wsi_names[ind]
 
-        visual_embeddings = torch.load(str(Path(self.lmdb_patches_path) / f"{Path(key)}"))
+        visual_embeddings = torch.tensor(self.wsi_embeddings[key])
 
-        # For now, we are taking the mean, this too can be learned
-        visual_embeddings = visual_embeddings.mean(dim=0)
+        # For now, we are taking 32 patches
+        chosen_ints = torch.randint(0,visual_embeddings.shape[0], (32,))
+
+        visual_embeddings = visual_embeddings[chosen_ints]
+        # the first visual embedding serves as an embeddor for the whole sequence of visual embeddings
+        # This is similar to having a CLS token in BERT models
+        visual_embeddings[0,:] = torch.ones(visual_embeddings.shape[1])
         
-        text_path = os.path.join(self.text_embeddings_path, key.split(".pt")[0]+".txt_latent.pt")
-        if Path(text_path).exists():
-            embedded_sequence = torch.load(text_path)
-            next_sequence = torch.tensor(self.wsi_text[key.split(".pt")[0]+".txt"])
-
-        else:
-            # it seems that some texts are given the wrong extension
-            # some texts are named .svs while they should be .mrxs
-            # TODO: Fix it properly 
-            text_path = os.path.join(self.text_embeddings_path, key.split(".")[0]+".mrxs.txt_latent.pt")
-            
-            if Path(text_path).exists():
-                embedded_sequence = torch.load(text_path)[:self.context_length+1]
-                next_sequence = torch.tensor(self.wsi_text[key.split(".")[0]+".mrxs.txt"])
-                
-            else:
-                return self.skip_sample(ind)
+        text_embeddings = torch.tensor(self.text_embeddings[key])
+        next_sequence = torch.tensor(self.text_tokens[key])
 
         token_sequence = next_sequence[1:self.context_length+1]
-        embedded_sequence = embedded_sequence[:self.context_length]
-        #embedded_sequence = next_sequence[:self.context_length]
+        embedded_sequence = text_embeddings[:self.context_length]
 
         return key, visual_embeddings, embedded_sequence, token_sequence
 
 class TextImageDataModule(LightningDataModule):
     def __init__(self,
-                 lmdb_patches_path: str,
+                 wsi_embeddings_path: str,
                  text_embeddings_path: str,
                  text_tokens_path: str,
-                 crossvalidation_path: str,
                  batch_size: int,
                  dataset: str,
                  num_workers: int = 0,
                  shuffle: bool = True,
-                 val_fold: int = 9,
                  context_length: int = 32
                  ):
         """Create a text image datamodule from directories with congruent text and image names.
@@ -105,66 +91,52 @@ class TextImageDataModule(LightningDataModule):
         Args:
         """
         super().__init__()
-        self.lmdb_patches_path = lmdb_patches_path
-        self.listed_data_path = crossvalidation_path
-        self.text_embeddings_path = text_embeddings_path
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle = shuffle
-        self.val_fold = val_fold
         self.dataset = dataset
         self.context_length = context_length
 
-        with open(text_tokens_path, "r") as f:
-            self.wsi_tokens = json.load(f)
+        self.train_wsi_embeddings = self.read_hdf5_dataset(wsi_embeddings_path+"train_wsi_embeddings.hdf5")
+        self.train_text_embeddings = self.read_hdf5_dataset(text_embeddings_path+"train_text_embeddings.hdf5")
+        self.train_text_tokens = self.read_hdf5_dataset(text_tokens_path+"train_target_tokens.hdf5")
 
-        validation_folds = [self.val_fold]
-        train_folds = list(set(range(0,10)) - set(validation_folds))
-
-        lmdb_patches = os.listdir(lmdb_patches_path)
-        lmdb_patches = {lmdb_patch.split(".pt")[0]: lmdb_patch for lmdb_patch in lmdb_patches}
-
-        listed_data_df = pd.read_csv(self.listed_data_path)
-        
-        training_folds = listed_data_df[listed_data_df["Fold"].isin(train_folds)]
-        validation_folds = listed_data_df[listed_data_df["Fold"].isin(validation_folds)]
-
-        # gives us the ability to choose on which dataset to train
-        if self.dataset=="radboud":
-            training_folds = training_folds[training_folds["WSI"].str.contains("EX")]
-            validation_folds = validation_folds[validation_folds["WSI"].str.contains("EX")]
-
-        elif self.dataset=="catania":
-            training_folds = training_folds[~training_folds["WSI"].str.contains("EX")]
-            validation_folds = validation_folds[~validation_folds["WSI"].str.contains("EX")]
-
-        self.listed_train_data = training_folds.WSI.tolist()
-        self.listed_train_data = [lmdb_patches[wsi] for wsi in self.listed_train_data if wsi in lmdb_patches]
-
-        self.listed_val_data = validation_folds.WSI.tolist()
-        self.listed_val_data = [lmdb_patches[wsi] for wsi in self.listed_val_data if wsi in lmdb_patches]
-        self.listed_val_labels = [wsi_labels[1:-2].astype(np.int) for wsi_labels in validation_folds.to_numpy() if wsi_labels[0] in lmdb_patches]
+        self.val_wsi_embeddings = self.read_hdf5_dataset(wsi_embeddings_path+"val_wsi_embeddings.hdf5")
+        self.val_text_embeddings = self.read_hdf5_dataset(text_embeddings_path+"val_text_embeddings.hdf5")
+        self.val_text_tokens = self.read_hdf5_dataset(text_tokens_path+"val_target_tokens.hdf5")        
 
         print("train_data length: ", len(self.listed_train_data))
         print("val_data length: ", len(self.listed_val_data))
         print("validation labels number: ", len(self.listed_val_labels))
     
+    def read_hdf5_dataset(self, file_path):
+        with h5py.File(file_path, 'r') as f:
+            keys = f['dataset/keys'][:]
+            values = f['dataset/values'][:]
+            
+            # Decode keys if they are in binary format
+            keys = [key.decode() if isinstance(key, bytes) else key for key in keys]
+            
+            # Create a dictionary to store the keys-values pairs
+            data_dict = {}
+            for i in range(len(keys)):
+                data_dict[keys[i]] = values[i]
+                
+        return data_dict
+
     def setup(self, stage: str):
 
         print("num workers: ", self.num_workers)
-        self.train_dataset = TextImageDataset(self.lmdb_patches_path,
-                                              self.text_embeddings_path,
-                                              self.wsi_tokens,
-                                              self.listed_train_data,
+        self.train_dataset = TextImageDataset(self.train_wsi_embeddings,
+                                              self.train_text_embeddings,
+                                              self.train_text_tokens,
                                               shuffle=self.shuffle,
                                               training_phase=True, context_length=self.context_length)
 
-        self.val_dataset = TextImageDataset(self.lmdb_patches_path,
-                                              self.text_embeddings_path,
-                                              self.wsi_tokens,
-                                              self.listed_val_data,
+        self.val_dataset = TextImageDataset(self.train_wsi_embeddings,
+                                              self.train_text_embeddings,
+                                              self.train_text_tokens,
                                               shuffle=False,
-                                              validation_labels=self.listed_val_labels,
                                               training_phase=False, context_length=self.context_length)
 
     def train_dataloader(self):

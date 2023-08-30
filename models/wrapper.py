@@ -1,13 +1,6 @@
-import time
-import numpy as np
-import json
-from tqdm import tqdm
-
 import torch
 from torch import Tensor
-from typing import Tuple, Optional
 import torch.nn as nn
-import torch.nn.functional as F
 import pytorch_lightning as pl
 
 from .captioner import WSICaptioner, CLIP
@@ -15,7 +8,7 @@ from transformers import AutoModel
 
 from .utils import *
 
-from transformers import AutoTokenizer, AutoTokenizer, get_linear_schedule_with_warmup, BioGptTokenizer, BioGptForCausalLM
+from transformers import get_linear_schedule_with_warmup, BioGptForCausalLM
 from argparse import ArgumentParser
 
 class BioGPT(pl.LightningModule):
@@ -41,13 +34,13 @@ class CLIPLightning(pl.LightningModule):
         super().__init__()
         self.model = CLIP(embed_dim=capt_config["embed_dim"], context_length=capt_config["context_length"])
 
-        # Load CLIP model in parts
+        # Load CWIP model in parts
         state_dict = torch.load(args.clip_checkpoint, map_location=torch.device("cpu"))["state_dict"]
-
-        state_dict_visual = {key.split("model.visual.")[1]: value for key, value in state_dict.items() if "visual" in key}
+        state_dict_visual = {key.split("model._orig_mod.visual.")[1]: value for key, value in state_dict.items() if "visual" in key}
+        
         self.model.visual.load_state_dict(state_dict_visual)
 
-        state_dict_text_projection = {key.split("model.text_projection.")[1]: value for key, value in state_dict.items() if "text_projection" in key}
+        state_dict_text_projection = {key.split("model._orig_mod.text_projection.")[1]: value for key, value in state_dict.items() if "text_projection" in key}
         self.model.text_projection.load_state_dict(state_dict_text_projection)
 
 class CaptioningWrapper(pl.LightningModule):
@@ -61,12 +54,12 @@ class CaptioningWrapper(pl.LightningModule):
         """
         super().__init__()
         
-        #self.clip = CLIPLightning(capt_config, args)
+        self.clip = CLIPLightning(capt_config, args)
         self.captioner = WSICaptioner(**capt_config)
 
         # make sure we don't train the pre-trained models
-        #self.clip.freeze()
-        #self.clip.eval()
+        self.clip.freeze()
+        self.clip.eval()
  
         self.hyper_params = args
         
@@ -77,8 +70,7 @@ class CaptioningWrapper(pl.LightningModule):
 
     def forward(self, text_hiddens: Tensor, visual_embeddings: Tensor):
 
-        #visual_embeddings = self.clip.model.visual(visual_embeddings)
-        #hiddens = self._get_sentence_embeddings(self.biogpt, tokens, output_all_hiddens=True)
+        visual_embeddings = self.clip.model.visual(visual_embeddings)
 
         return self.captioner(text_hiddens, visual_embeddings)
 
@@ -137,7 +129,7 @@ class CaptioningWrapper(pl.LightningModule):
         #lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, 0.99)
 
         lr_scheduler = get_linear_schedule_with_warmup(
-                        optimizer, num_warmup_steps=15, num_training_steps=100
+                        optimizer, num_warmup_steps=15, num_training_steps=120
                     )
 
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}

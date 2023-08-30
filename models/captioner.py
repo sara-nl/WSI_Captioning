@@ -99,7 +99,6 @@ class TextDecoder(nn.Module):
         super().__init__()
 
         self.token_embedding = nn.Embedding(n_vocab, n_state)
-        #self.positional_embedding = nn.Parameter(torch.empty(n_ctx, n_state))
 
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
             [ResidualAttentionBlock(n_state, n_head, cross_attention=True) for _ in range(n_layer)]
@@ -116,9 +115,7 @@ class TextDecoder(nn.Module):
         xa : torch.Tensor, shape = (batch_size, n_state)
             the encoded audio features to be attended on
         """
-        #offset = 0
-        #x = self.token_embedding(x) + self.positional_embedding[offset : offset + x.shape[-1]]
-        x = x#.to(xa.dtype)
+        x = x
 
         # reshape such that our visual embeddings matches the sequence length
         # note that every text token now obtains (the same) information from the visual embeddings
@@ -129,30 +126,69 @@ class TextDecoder(nn.Module):
 
         x = self.ln(x)
         
-        logits = (x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0,1))#.float()
+        logits = (x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0,1))
         return logits
+
+class WSIDecoder(nn.Module):
+    def __init__(self, vision_dim: int, n_ctx: int, n_state: int, n_head: int = 2, n_layer: int = 3):
+        super().__init__()
+
+        self.input_linear = nn.Linear(vision_dim, n_state)
+
+        self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
+            [ResidualAttentionBlock(n_state, n_head, cross_attention=True) for _ in range(n_layer)]
+        )
+        self.ln = LayerNorm(vision_dim)
+        self.ln_post = LayerNorm(n_state)
+
+        mask = torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
+        self.register_buffer("mask", mask, persistent=False)
+
+        self.output_linear = nn.Linear(n_state, n_state)
+        
+    def forward(self, x: Tensor):
+        """
+        x : torch.LongTensor, shape = (batch_size, <= n_ctx)
+            the text tokens
+        xa : torch.Tensor, shape = (batch_size, n_state)
+            the encoded audio features to be attended on
+        """
+        x = self.input_linear(self.ln(x))#.to(xa.dtype)
+
+        # reshape such that our visual embeddings matches the sequence length
+        # note that every text token now obtains (the same) information from the visual embeddings
+
+        for block in self.blocks:
+            x = block(x, xa=None, mask=self.mask)
+        
+        x = self.ln_post(x)
+        # get the embedding of the embeddings
+        x = self.output_linear(x[:,0,:])
+        return x
+
 
 class CLIP(nn.Module):
     def __init__(self,
                  embed_dim: int,
-                 context_length: int    
+                 context_length: int,
                  ):
         super().__init__()
 
-        self.context_length = context_length
-
-        self.visual = nn.Sequential(nn.Linear(192, embed_dim//2), nn.ReLU(), nn.Dropout(0.1),
-                                    nn.Linear(embed_dim//2, embed_dim), nn.ReLU(), nn.Dropout(0.1),
-                                    nn.Linear(embed_dim, embed_dim))  
-
+        self.context_length = context_length                                  
+        
+        # HIPT encodes 4096x4096 regions to a vector of 192
+        self.visual = WSIDecoder(192, 32, embed_dim, 2, 3)
+        # We have diagnostic report projection from 768 to embed_dim to match the visual embeddings
         self.text_projection = nn.Sequential(nn.Linear(768, 768), nn.ReLU(), nn.Dropout(0.1),
                                              nn.Linear(768, embed_dim), nn.ReLU(), nn.Dropout(0.1), 
-                                             nn.Linear(embed_dim, embed_dim))    
+                                             nn.Linear(embed_dim, embed_dim))
+
+
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07)) 
 
 
 class WSICaptioner(nn.Module):
     def __init__(self,
-                 embed_dim: int,
                  context_length: int,
                  vocab_size: int,
                  transformer_width: int,
@@ -161,12 +197,7 @@ class WSICaptioner(nn.Module):
                  ):
         super().__init__()
 
-        self.context_length = context_length  
-
-        # Only necessary when not training the model with CLIP embeddings
-        self.visual = nn.Sequential(nn.Linear(192, embed_dim//2), nn.ReLU(), nn.Dropout(0.1),
-                                    nn.Linear(embed_dim//2, embed_dim), nn.ReLU(), nn.Dropout(0.1),
-                                    nn.Linear(embed_dim, embed_dim))                                     
+        self.context_length = context_length                                   
 
         self.decoder = TextDecoder(vocab_size,
                     context_length,
@@ -174,27 +205,8 @@ class WSICaptioner(nn.Module):
                     transformer_heads,
                     transformer_layers,
                 )                                    
-
-    # UNUSED FOR NOW
-    def initialize_parameters(self):
-        nn.init.normal_(self.token_embedding.weight, std=0.02)
-        nn.init.normal_(self.positional_embedding, std=0.01)
-
-        proj_std = (self.transformer.width ** -0.5) * ((2 * self.transformer.layers) ** -0.5)
-        attn_std = self.transformer.width ** -0.5
-        fc_std = (2 * self.transformer.width) ** -0.5
-        for block in self.transformer.blocks:
-            nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
-            nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
-            nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
-            nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
-
-        if self.text_projection is not None:
-            nn.init.normal_(self.CLIP.text_projection, std=self.transformer.width ** -0.5)
-
+    
     def forward(self, lm_hiddens: Tensor, visual_clip_embeddings: Tensor) -> Dict[str, Tensor]:
-
-        visual_clip_embeddings = self.visual(visual_clip_embeddings)
         
         lm_logits = self.decoder(lm_hiddens, visual_clip_embeddings)
         
