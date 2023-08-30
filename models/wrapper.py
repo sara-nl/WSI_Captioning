@@ -48,9 +48,7 @@ class CaptioningWrapper(pl.LightningModule):
                  capt_config: dict,
                  args: ArgumentParser
                  ):
-        """A lightning wrapper for a WSI Captiong model as specified in the google docs.
-
-        Args:
+        """A lightning wrapper for a WSI Captioning model 
         """
         super().__init__()
         
